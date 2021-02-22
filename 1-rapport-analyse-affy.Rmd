@@ -1,0 +1,231 @@
+---
+title: "LSTAT2340 - Analyse de données transcriptomique : Affymetrix Gene Expression Microarray"
+author: "Jerome Ambroise - UCL - IREC - CTMA"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output: 
+  html_document:
+    smart: FALSE
+    code_folding: show
+    collapsed: yes
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 9
+    highlight: tango
+    number_sections: yes
+    theme: united
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+Dans le document, ci-dessous, nous allons analyser des données microarray générées avec une plateforme Affymetrix.
+
+Les données proviennent de l'étude "MicroArray Quality Control (MAQC) project" dont un des papier vous est fourni.
+Dans ce document, nous analysons 5 échantillons A (A1, A2, A3, A4 et A5) et 5 échantillons B (B1, B2, B3, B4 et B5) et l'objectif est d'identifier les gènes qui sont modulés.
+
+#  Chargement des packages et importation des données.
+
+Nous commençons par charger le package Limma. Limma est un package bioconductor qui dispose d'un "user guide" très complet.
+
+Le package 'gcrma' sera utilisé pour le prétraitement des données.
+
+Le package 'hgu133plus2.db' sera utilisé pour annoter les sondes (ou "probes").
+
+
+```{r results='hide', message=FALSE, warning=FALSE}
+library(limma)
+library(gcrma)
+library(hgu133plus2.db)
+```
+
+Nous importons les données qui sont situées dans le répertoire 1-data/AFFX Il s'agit de 10 fichiers '.CEL'.
+
+```{r}
+rm(list=ls())
+files <- list.files('1-data/AFFX/',full.names = T)
+rawfiles <- ReadAffy(filenames=files)
+rawfiles
+
+```
+
+
+#  Pré-traitement des données.
+
+
+Les données de microarray sont généralement pré-traitées en 3 étapes:
+
+1: la correction du background
+
+2: la normalisation
+
+3: la transformation (généralement log2)
+
+Avec les données de affymetrix, ces trois étapes sont généralement réalisée avec une seule fonction.
+GCRMA est une méthode standard pour réaliser ces trois étapes.
+
+```{r}
+expressionset <- gcrma(rawfiles)
+print(expressionset)
+```
+
+L'expressionset contient de nombreux "slots" dont la matrice d'expression.
+Il est intéressant de noter que pour le moment le 'slot' featureData est vide. Il s'agit du slot dans lequel doit être stocké la significaiton de chacune des sondes.
+Il est possible d'extraire cette matrice d'expression avec la fonction 'exprs'.
+
+
+##  assaydata   =  matrice d'expression
+
+
+```{r}
+assaydata <- assayData(expressionset)
+expressionmatrix <- assaydata$exprs
+dim(expressionmatrix)
+expressionmatrix[1:10,1:10]
+```
+
+
+##  protocolData = données du protocole
+
+
+```{r}
+
+protocol <- protocolData(expressionset)
+pData(protocol)
+```
+
+##  phenoData = données phénotypiques
+
+```{r}
+phenoData(expressionset)
+phenoData(expressionset)$group <- c(rep('A',5),rep('B',5))
+phenoData(expressionset)
+as(phenoData(expressionset), "data.frame")
+```
+
+
+##  featureData = information sur chaques probe - gène
+
+```{r}
+
+featureData(expressionset)
+featureNames(featureData(expressionset))[1:10]
+
+keytypes(hgu133plus2.db)
+SYMBOL <- mapIds(hgu133plus2.db, keys=as.character(featureNames(featureData(expressionset))),keytype="PROBEID", column="SYMBOL")
+ENSEMBL <- mapIds(hgu133plus2.db, keys=as.character(featureNames(featureData(expressionset))),keytype="PROBEID", column="ENSEMBL")
+featureData(expressionset)$gene <- SYMBOL
+featureData(expressionset)$ensembl <- ENSEMBL
+featureData(expressionset)
+dim(as(featureData(expressionset), "data.frame"))
+head(as(featureData(expressionset), "data.frame"))
+
+```
+
+##  Subsetting
+
+Il est possible de sélectionner certains gènes et échantillon dans l'objet expressionset.
+Tous les slots sont mis à jours. L'outil permet dont d'éviter les erreurs.
+
+```{r}
+expressionset.subset <- expressionset[1:10,1:5]
+expressionset.subset
+assayData(expressionset.subset)$exprs
+as(phenoData(expressionset.subset), "data.frame")
+as(featureData(expressionset.subset), "data.frame")
+
+```
+
+#  Analyse en Composantes Principales
+
+```{r}
+mypca <- prcomp(t(assayData(expressionset)$exprs))
+mypca$x
+plot(mypca$x[,1],mypca$x[,2],col=c(rep('red',5),rep('black',5)),pch=20,lwd=3)
+
+```
+
+
+
+
+#  Création des modèles statistiques pour détecter les gènes modulés
+
+Pour rappel, le but est de comparer les niveaux d'expression de chacun des gènes entre les 5 échantillons 'A' et les 5 échantillons 'B'. Nous commencçons par spécifier à R le design de notre expérience
+
+```{r}
+mycondition <- phenoData(expressionset)$group 
+mydesign <- model.matrix(~mycondition )
+print(mydesign)
+```
+
+
+
+Une fois que le modèle est spécifié, il est possible de créer les modèles pour chacun des gènes et de calculer les statistiques de test et les p-valeurs associées à chacun des gestes. Cela se fait en deux étapes avec les fonctions 'lmFit' et 'eBayes' du package 'limma'. 
+
+```{r}
+fit <- lmFit(expressionset, design=mydesign)
+efit <- eBayes(fit)
+```
+
+Une fois les modèles construits, on peut aller chercher les informations qui nous intéressent et les regrouper dans une data.frame. 
+Il s'agit de 2 éléments
+
+1: Le coefficient d'intérêt du modèle construit pour chacun des gènes. Ce coefficient correspond à la différence moyenne entre le niveau d'expression des échantillons A et B, dans l'échelle log2. Il s'agit donc d'un 'log2 fold-change'.
+
+2: la p-valeur d'intérêt du modèle construit pour chacun des gènes.
+
+
+```{r}
+coefficient.affx <- fit$coefficients
+head(coefficient.affx)
+logfc <- coefficient.affx[,2]
+pvalue <- efit$p.value
+head(pvalue)
+pvalue <- pvalue[,2]
+adj.pvalue <- p.adjust(pvalue,method='BH')
+
+RESULT <- data.frame(as(featureData(expressionset), "data.frame"),logfc,pvalue,adj.pvalue)
+RESULT <- RESULT[sort.list(RESULT$adj.pvalue),]
+head(RESULT)
+
+```
+
+
+
+
+
+#  Quelques graphiques
+
+##  Heatmap
+
+Nous allons représenter une heatmap des 30 premiers gènes (choix arbitraire des gènes).
+
+```{r,fig.height=10}
+heatmap(assayData(expressionset[1:30,1:10])$exprs)
+```
+
+
+##  Volcano
+
+
+Nous allons représenter un volcano-plot.
+
+
+```{r}
+plot(RESULT$logfc,-log10(RESULT$pvalue))
+
+```
+
+
+
+
+
+
+
+
+
+
+
