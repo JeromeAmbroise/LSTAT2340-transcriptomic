@@ -35,7 +35,7 @@ library(WriteXLS)
 ```
 
 ```{r}
-adams <- readRDS( '1-data/scrnaseq/data.combined.selected.rds')
+adams <- readRDS( '1-data/data.combined.selected.rds')
 DefaultAssay(adams) <- "RNA"
 adams
 ```
