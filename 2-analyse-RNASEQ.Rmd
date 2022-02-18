@@ -1,0 +1,150 @@
+---
+title: "LSTAT2340 - Analyse de données transcriptomique : données RNA-SEQ générées avec une plateforme NGS de la marque Illumina"
+author: "Jerome Ambroise - UCL - IREC - CTMA"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output: 
+  html_document:
+    smart: FALSE
+    code_folding: show
+    collapsed: yes
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 9
+    highlight: tango
+    number_sections: yes
+    theme: united
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+
+Dans le document, ci dessous, nous allons analyser des données de transcriptomique (RNA-SEQ)  générées avec une plateforme NGS Illumina.
+
+Les données proviennent du prolongement de l'étude "MicroArray Quality Control (MAQC) project" appelée SEQC.
+Dans ce document, nous analysons 5 échantillons A (A1, A2, A3, A4 et A5) et 5 échantillons B (B1, B2, B3, B4 et B5) et l'objectif est d'identifier les gènes qui sont modulés.
+
+
+
+# Chargement des packages et importation des données.
+
+Nous commençons par charger le package edger. edger est un package bioconductor qui dispose d'un "user guide" très complet.
+
+```{r results='hide', message=FALSE, warning=FALSE}
+library(edgeR)
+library(org.Hs.eg.db)
+library(gplots)
+library(ggplot2)
+```
+
+Nous chargeons ensuite les données.
+On va créer une DGElist. Cette DGElist a besoin de 3 informations:
+
+- la matrice de comptage
+
+- les noms des gènes
+
+- les groupes (phénotypes)
+
+
+```{r}
+rm(list=ls())
+count_table <- read.table('data/ILM/ILM.txt')
+head(expression)
+
+keytypes(org.Hs.eg.db)
+SYMBOL <- mapIds(org.Hs.eg.db, keys=as.character(count_table$EntrezID),keytype="ENTREZID", column="SYMBOL")
+ENSEMBL <- mapIds(org.Hs.eg.db, keys=as.character(count_table$EntrezID),keytype="ENTREZID", column="ENSEMBL")
+
+genes <- data.frame(count_table[,1:2],SYMBOL,ENSEMBL)
+head(genes)
+
+group <- c(rep('A',5),rep('B',5))
+dge <- DGEList(counts=count_table[,-c(1,2)],group=group,genes =genes )
+
+```
+
+# Filtre sur les gènes faiblement exprimés et normalisation des données  
+
+```{r}
+
+dge
+keep <- rowSums(cpm(dge)>1) >= 2
+dge <- dge[keep, , keep.lib.sizes=FALSE]
+dge <- calcNormFactors(dge)
+dge
+```
+
+
+
+#  Création des modèles statistiques pour détecter les gènes modulés
+
+
+Pour rappel, le but est de comparer les niveaux d'expression de chacun des gènes entre les 5 échantillons 'A' et les 5 échantillons 'B'. Nous commencçons par spécifier à R le design de notre expérience. Une fois que le modèle est construit, on spécifie le contraste pour lequel on veut obtenir les statistique (logfc, p-valeur, etc).
+
+```{r}
+group <- dge$sample$group
+design <- model.matrix(~0+group)
+design
+dge <- estimateDisp(dge,design)
+
+contrast <- "groupB-groupA"
+contrasts <- as.data.frame(makeContrasts(contrasts = contrast, levels = design))
+
+fit <- glmQLFit(dge,design)
+qlf <- glmQLFTest(fit,contrast = contrasts)
+
+```
+
+
+
+# 5: Extraction des résultats
+
+Dans l'exemple ci-dessous, l'ajustement de la p-valeur est réalisé avec la méthode 'BH' (Benjamini-Hochberg).
+
+```{r}
+topTags(qlf,n=15,adjust.method = 'BH')
+```
+
+
+
+
+
+# 6: Quelques graphiques
+
+## 6.1 Heatmap
+
+Nous allons représenter une heatmap des 100 premiers gènes (choix arbitraire des gènes).
+
+```{r}
+logcpm <- cpm(dge,normalized.lib.sizes=TRUE, log=T, prior.count=0.25)
+rownames(logcpm) <- dge$genes$Symbol
+
+logcpm_selected <- logcpm[is.element(rownames(logcpm),data.frame(topTags(qlf,n=15))$Symbol),]
+
+heatmap.2(as.matrix(logcpm_selected),col='greenred',trace='none',dendrogram='none',margins = c(12,12),symbreaks=F,symkey = FALSE,Rowv=F,Colv = F,keysize=1,density.info='none')
+
+```
+
+
+## 6.2 Volcano
+
+
+Nous allons représenter un volcano-plot.
+
+
+```{r}
+complete_table <- as.data.frame(topTags(qlf,n=dim(dge)[1],adjust.method = 'BH'))
+ggplot(data = complete_table,aes(x =logFC ,y = -log10(PValue)))+
+  geom_point()
+
+```
+
+
+# Session info
+
+```{r}
+sessionInfo()
+```

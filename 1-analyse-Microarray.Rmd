@@ -1,0 +1,220 @@
+---
+title: "LSTAT2340 - Analyse de données transcriptomiques: 'Gene Expression Microarray (Affymetrix)'"
+author: "Jerome Ambroise - UCL - IREC - CTMA"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output: 
+  html_document:
+    smart: FALSE
+    code_folding: show
+    collapsed: yes
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 9
+    highlight: tango
+    number_sections: yes
+    theme: united
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+Dans le document, ci-dessous, nous allons analyser des données d'expression de gènes  générées avec une plateforme 'microarray' de la marque Affymetrix.
+
+Les données proviennent de l'étude "MicroArray Quality Control (MAQC) project" dont un des papier vous est fourni dans le répertoire 'doc'.
+Dans ce document, nous analysons 5 échantillons A (A1, A2, A3, A4 et A5) et 5 échantillons B (B1, B2, B3, B4 et B5) et l'objectif est d'identifier les gènes qui sont modulés.
+
+#  Chargement des packages et importation des données.
+
+Nous commençons par charger le package Limma. Limma est un package bioconductor qui dispose d'un "user guide" très complet.
+
+Le package 'gcrma' sera utilisé pour le prétraitement des données.
+
+Le package 'hgu133plus2.db' sera utilisé pour annoter les sondes (ou "probes").
+
+Les packages factoextra et FactoMineR seront utilisés pour l'analyse en composantes principales (ACP).
+
+Le package ggplot2 pour les graphiques.
+
+
+```{r results='hide', message=FALSE, warning=FALSE}
+library(limma)
+library(gcrma)
+library(hgu133plus2.db)
+library(factoextra)
+library(FactoMineR)
+library(ggplot2)
+library(gplots)
+```
+
+Nous importons les données qui sont situées dans le répertoire 1-data/AFFX Il s'agit de 10 fichiers '.CEL'.
+
+```{r}
+rm(list=ls())
+files <- list.files('data/AFFX/',full.names = T)
+rawfiles <- ReadAffy(filenames=files)
+rawfiles
+
+```
+
+
+#  Pré-traitement des données.
+
+
+Les données de microarray sont généralement pré-traitées en 3 étapes:
+
+1: la correction du background
+
+2: la normalisation
+
+3: la transformation (généralement log2)
+
+Avec les données de affymetrix, ces trois étapes sont généralement réalisée avec une seule fonction.
+GCRMA est une méthode standard pour réaliser ces trois étapes.
+
+```{r}
+expressionset <- gcrma(rawfiles)
+print(expressionset)
+```
+
+L'expressionset contient de nombreux "slots" dont la matrice d'expression.
+Il est intéressant de noter que pour le moment le 'slot' featureData est vide. Il s'agit du slot dans lequel doit être stocké la significaiton de chacune des sondes.
+
+
+##  assaydata   =  matrice d'expression
+
+Il est possible d'extraire la matrice d'expression de deux manières.
+
+
+```{r}
+expression_matrix <- assayData(expressionset)$exprs
+expression_matrix <- exprs(expressionset)
+dim(expression_matrix)
+expression_matrix[1:10,1:10]
+```
+
+
+##  protocolData = données du protocole
+
+
+```{r}
+pData(protocolData(expressionset))
+```
+
+##  phenoData = données phénotypiques
+
+```{r}
+pData(phenoData(expressionset))
+phenoData(expressionset)$group <- c(rep('A',5),rep('B',5))
+pData(phenoData(expressionset))
+expressionset$group
+```
+
+
+##  featureData = information sur chaques probe - gène
+
+```{r}
+featureNames(featureData(expressionset))[1:10]
+
+keytypes(hgu133plus2.db)
+SYMBOL <- mapIds(hgu133plus2.db, keys=as.character(featureNames(featureData(expressionset))),keytype="PROBEID", column="SYMBOL")
+ENSEMBL <- mapIds(hgu133plus2.db, keys=as.character(featureNames(featureData(expressionset))),keytype="PROBEID", column="ENSEMBL")
+featureData(expressionset)$gene <- SYMBOL
+featureData(expressionset)$ensembl <- ENSEMBL
+head(pData(featureData(expressionset)))
+dim(pData(featureData(expressionset)))
+```
+
+##  Subsetting
+
+Il est possible de sélectionner certains gènes et échantillon dans l'objet expressionset.
+Tous les slots sont mis à jours. L'outil permet donc d'éviter les erreurs.
+
+```{r}
+expressionset_subset <- expressionset[1:10,1:5]
+expressionset_subset
+exprs(expressionset_subset)
+pData(phenoData(expressionset_subset))
+pData(featureData(expressionset_subset))
+
+```
+
+#  Analyse en Composantes Principales
+
+```{r,fig.width=5,fig.height=5}
+pca_conc <- PCA(t(exprs(expressionset)),  graph = F)
+fviz_pca_ind(pca_conc, col.ind = expressionset$group,repel = T ,title='PCA',geom.ind='point',invisible='quali')
+```
+
+
+
+
+#  Création des modèles statistiques pour détecter les gènes modulés
+
+Pour rappel, le but est de comparer les niveaux d'expression de chacun des gènes entre les 5 échantillons 'A' et les 5 échantillons 'B'. Nous commençons par spécifier à R le design de notre expérience
+
+```{r}
+group <- expressionset$group 
+mydesign <- model.matrix(~group )
+print(mydesign)
+```
+
+
+
+Une fois que le modèle est spécifié, il est possible de créer les modèles pour chacun des gènes et de calculer les statistiques de test et les p-valeurs associées à chacun des gestes. Cela se fait en deux étapes avec les fonctions 'lmFit' et 'eBayes' du package 'limma'. 
+
+```{r}
+fit <- lmFit(expressionset, design=mydesign)
+efit <- eBayes(fit)
+```
+
+Une fois les modèles construits, on peut extraire les logFC, les p-valeurs brutes, les p-valeurs ajustées (avec la méthode spécifiée, ici Benjamini-Hochberg pour contrôler le FDR) 
+
+
+```{r}
+topTable(efit, coef=2,adjust.method='BH',number = 15)
+```
+
+
+
+
+
+#  Quelques graphiques
+
+##  Heatmap
+
+Nous allons représenter une heatmap des 30 premiers gènes (choix arbitraire des gènes).
+
+```{r,fig.height=10}
+heatmap.2(exprs(expressionset[1:30,1:10]),col='greenred',trace='none',dendrogram='none',margins = c(10,10),symbreaks=F,symkey = FALSE,Rowv=F,Colv = F,keysize=1,density.info='none')
+```
+
+##  Volcano plot
+
+Nous allons représenter un volcano-plot.
+
+
+```{r}
+complete_table <- topTable(efit, coef=2,adjust.method='BH',number = dim(expressionset)[1])
+ggplot(data = complete_table,aes(x =logFC ,y = -log10(P.Value)))+
+  geom_point()
+```
+
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+

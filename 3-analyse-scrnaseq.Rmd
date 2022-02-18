@@ -1,0 +1,91 @@
+---
+title: "LSTAT2340 - Analyse de données transcriptomique : Single-cell RNA-SEQ"
+author: "Jerome Ambroise - UCL - IREC - CTMA"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output: 
+  html_document:
+    smart: FALSE
+    code_folding: show
+    collapsed: yes
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 9
+    highlight: tango
+    number_sections: yes
+    theme: united
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+
+Dans le document, ci dessous, nous allons analyser des données single-cell RNA-SEQ
+
+
+
+```{r message=FALSE}
+library(Seurat)
+library(scater)
+library(Matrix)
+library(dplyr)
+library(tidyr)
+library(WriteXLS)
+```
+
+```{r}
+adams <- readRDS( 'data/data.combined.selected.rds')
+DefaultAssay(adams) <- "RNA"
+adams
+```
+
+# Reduction de dimension
+
+PCA : Principal Component analysis.
+
+UMAP nonlinear dimensionality-reduction technique, uniform manifold approximation and projection (UMAP)
+
+
+```{r}
+DimPlot(adams, reduction = "umap")
+DimPlot(adams, reduction = "pca")
+```
+
+# Calcul des gènes modulés
+
+```{r}
+adams
+exprs <- GetAssayData(object = adams, slot = 'data')
+dim(exprs)
+dim(adams@meta.data)
+
+head(adams@meta.data)
+table(adams$Manuscript_Identity)
+table(adams$Disease_Identity)
+adams@meta.data$celltype.group <- paste(adams$Manuscript_Identity, adams$Disease_Identity, sep = "_")
+
+Idents(adams) <- adams$celltype.group
+table(Idents(adams))
+
+
+markers.COPD.Basal <- FindMarkers(adams,ident.2 = 'Ciliated_Control' ,ident.1 = 'Ciliated_COPD',logfc.threshold	= 0.01)
+markers.COPD.Basal <- tibble(data.frame(gene=rownames(markers.COPD.Basal),markers.COPD.Basal))
+markers.COPD.Basal <- markers.COPD.Basal %>% dplyr::select(gene,avg_log2FC,p_val,p_val_adj)
+markers.COPD.Basal
+```
+
+# Illustration des résultats
+
+
+```{r}
+Idents(adams) <- adams$Manuscript_Identity
+VlnPlot(adams, features = c("FTL"),  split.by= "Disease_Identity")
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

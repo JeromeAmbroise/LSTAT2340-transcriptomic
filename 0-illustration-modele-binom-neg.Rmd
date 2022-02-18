@@ -1,0 +1,71 @@
+---
+title: "LSTAT2340 - Analyse de données transcriptomiques : Illustration d'un modèle linéaire et d'un modèe binomial negatif"
+author: "Jerome Ambroise - UCL - IREC - CTMA"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output: 
+  html_document:
+    smart: FALSE
+    code_folding: show
+    collapsed: yes
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 9
+    highlight: tango
+    number_sections: yes
+    theme: united
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+
+Dans le document, ci dessous, nous allons comparer deux approches pour modéliser les données transcriptomiques:
+- le modèle linéaire 
+- et le modèle binomial négatif.
+
+Le modèle linéaire doit être appliqué lorsqu'on analyse des données continues (pex gene expression microarray)
+Le modèle binomial négatif doit être appliqué lorsqu'on analyse des données discrètes (pex RNA-SEQ)
+
+# Chargement des packages
+
+```{r}
+library(MASS)
+library(gmodels)
+library(ggplot2)
+```
+
+# Génération des données
+
+```{r}
+condition <-  factor(c(rep('A',5),rep('B',5)))
+y_cont <- c(rnorm(5,100,10),rnorm(5,1300,50))
+y_disc <- c(rpois(5,100),rpois(5,1300))
+
+df1 <- data.frame(condition,y_cont,y_disc)
+print(df1)
+```
+
+# Le modèle linéaire
+
+```{r,fig.width=4,fig.height=3}
+ggplot(df1, aes(x=condition, y=y_cont)) + 
+  geom_point()
+mod_lm <- lm(log2(y_cont)~condition,data=df1)
+summary(mod_lm)
+2^coefficients(mod_lm)[2]
+```
+
+# Le modèle binomial négatif
+
+
+```{r,fig.width=4,fig.height=3}
+ggplot(df1, aes(x=condition, y=y_disc)) + 
+  geom_point()
+mod_bn <- glm(y_disc~condition,family=negative.binomial(1),data=df1)
+summary(mod_bn)
+exp(coefficients(mod_bn)[2])
+```
+
+
