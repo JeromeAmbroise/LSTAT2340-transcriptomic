@@ -1,4 +1,4 @@
-LSTAT2340 - Transcriptomic
+# LSTAT2340 - Transcriptomic
 
 Dans ce répertoire, nous illustrons 3 types d'analyse transcriptomique.
 
