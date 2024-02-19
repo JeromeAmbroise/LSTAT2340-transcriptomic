@@ -81,7 +81,7 @@ print(expressionset)
 ```
 
 L'expressionset contient de nombreux "slots" dont la matrice d'expression.
-Il est intéressant de noter que pour le moment le 'slot' featureData est vide. Il s'agit du slot dans lequel doit être stocké la significaiton de chacune des sondes.
+Il est intéressant de noter que pour le moment le 'slot' featureData est vide. Il s'agit du slot dans lequel doit être stocké la signification de chacune des sondes.
 
 
 ##  assaydata   =  matrice d'expression
